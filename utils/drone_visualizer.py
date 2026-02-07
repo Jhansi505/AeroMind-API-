@@ -17,11 +17,58 @@ class DroneVisualizer:
         self.ax_side = None
         self.ax_top = None
         self.ax_telemetry = None
+        # Animation tuning parameters
+        # speed_factor > 1.0 => faster animation, < 1.0 => slower
+        self.anim_speed_factor = 1.0
+        # base values used to compute steps and pause time
+        self._base_step_scale = 20.0
+        self._min_steps = 6
+        self._max_steps = 200
+        self._base_frame_delay = 0.02
         
     def add_position(self, x: float, y: float, z: float):
         """Add a new position to the trajectory"""
-        self.positions.append([x, y, z])
-        self.update_plot()
+        # Smoothly animate from current position to new position by appending
+        # intermediate points so the drone appears to move.
+        import numpy as _np
+
+        start = _np.array(self.positions[-1], dtype=float)
+        end = _np.array([x, y, z], dtype=float)
+        dist = _np.linalg.norm(end - start)
+
+        if dist < 1e-3:
+            # negligible movement
+            self.positions.append([x, y, z])
+            self.update_plot()
+            return
+
+        # Compute steps and frame delay using configurable parameters
+        steps = int(max(self._min_steps, min(self._max_steps, dist * self._base_step_scale)))
+        # Apply speed factor: larger speed_factor reduces pause time (faster)
+        frame_delay = max(0.001, self._base_frame_delay / max(1e-6, self.anim_speed_factor))
+
+        for t in _np.linspace(0.0, 1.0, steps + 1)[1:]:
+            interp = (1.0 - t) * start + t * end
+            self.positions.append([float(interp[0]), float(interp[1]), float(interp[2])])
+            self.update_plot()
+            try:
+                plt.pause(frame_delay)
+            except Exception:
+                # In case interactive mode isn't available, just continue
+                pass
+
+    def set_animation_speed(self, speed_factor: float):
+        """Set animation speed factor. Values >1 speed up, <1 slow down."""
+        try:
+            v = float(speed_factor)
+            if v <= 0:
+                raise ValueError("speed_factor must be > 0")
+            self.anim_speed_factor = v
+        except Exception:
+            raise
+
+    def get_animation_speed(self) -> float:
+        return float(self.anim_speed_factor)
         
     def get_current_position(self):
         """Get the current drone position"""
